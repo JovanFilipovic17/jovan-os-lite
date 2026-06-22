@@ -1,0 +1,28 @@
+# Secrets
+.env
+
+# Local database and generated reports
+data/
+reports/
+*.db
+
+# Private notes / private README
+README_PRIVATE.md
+notes.txt
+notes.ipynb
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Virtual environments
+.venv/
+venv/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# OS/editor
+.DS_Store
+.vscode/
