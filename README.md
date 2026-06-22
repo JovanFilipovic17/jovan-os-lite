@@ -24,10 +24,10 @@ The goal is to turn vague effort into measurable progress.
 
 The system helps a user manage several life or work domains, such as:
 
-* Study
-* Projects
-* Health
-* Career
+* formal education
+* project building
+* health and training
+* career visibility
 
 Each domain can have:
 
@@ -71,7 +71,7 @@ It identifies:
 * bottlenecks
 * next actions
 
-The evaluator distinguishes between missed tasks and tasks that were simply not mentioned.
+The evaluator distinguishes between missed tasks and tasks that were simply not mentioned. This prevents unknown items from being treated as automatic failures.
 
 ---
 
@@ -154,6 +154,7 @@ jovan_os_lite/
 ├── prompts.py
 ├── os_agents.py
 ├── scoring.py
+├── seed_demo.py
 │
 ├── data/
 │   └── jovan_os.db
@@ -178,6 +179,57 @@ jovan_os_lite/
 * Pydantic structured outputs
 * Python weighted scoring
 * Human-approved weight updates
+
+---
+
+## Demo Setup
+
+This repository does not include a real local database, private reports, or API keys.
+
+To create a local demo database with synthetic goals, run:
+
+```bash
+uv run seed_demo.py
+```
+
+Then start the app:
+
+```bash
+uv run app.py
+```
+
+The demo data uses generic goal titles while keeping the current internal domain identifiers:
+
+* `formalno_obrazovanje` → formal education / coursework
+* `neformalno_obrazovanje` → project building / skill development
+* `sport` → health and training
+* `karijera` → career visibility
+
+No private user data is included in the repository.
+
+---
+
+## Example Demo Goals
+
+The demo seed creates public-safe example goals:
+
+```text
+Complete university coursework
+Build AI portfolio projects
+Maintain fitness routine
+Improve career visibility
+```
+
+Example domain weights:
+
+```text
+formalno_obrazovanje: 30%
+neformalno_obrazovanje: 30%
+sport: 20%
+karijera: 20%
+```
+
+These are only synthetic demo values.
 
 ---
 
@@ -209,29 +261,35 @@ reports/latest_optimization.md
 
 These reports make the system easier to inspect, debug, and demonstrate.
 
+The `reports/` folder is ignored by Git because reports may contain private local data.
+
 ---
 
 ## Demo Flow
 
 A typical demo flow:
 
-1. Generate a daily plan.
-2. Enter a daily execution log.
-3. Run the evaluator.
-4. Check the dashboard.
-5. Generate a weekly review.
-6. Generate an optimizer report.
-7. Apply latest weight recommendations manually.
-8. Confirm that the dashboard updates.
+1. Seed demo data.
+2. Start the local Gradio app.
+3. Generate a daily plan.
+4. Enter a daily execution log.
+5. Run the evaluator.
+6. Check the dashboard.
+7. Generate a weekly review.
+8. Generate an optimizer report.
+9. Apply latest weight recommendations manually.
+10. Confirm that the dashboard updates.
 
-Example synthetic input:
+Example synthetic plan request:
 
 ```text
-Plan request:
-Study, project work, training
+Study, project work, and training.
+```
 
-Execution log:
-Completed a study block, worked on the project, skipped training due to time constraints.
+Example synthetic execution log:
+
+```text
+Completed a 90-minute study block. Fixed one project bug and updated the README. Skipped training due to time constraints.
 ```
 
 Example system behavior:
@@ -258,6 +316,8 @@ The following files and folders should stay local and should not be committed:
 data/
 reports/
 README_PRIVATE.md
+notes.txt
+notes.ipynb
 ```
 
 A public demo should use synthetic goals, logs, and reports instead of personal data.
@@ -267,13 +327,34 @@ A public demo should use synthetic goals, logs, and reports instead of personal 
 ## Example `.gitignore`
 
 ```gitignore
+# Secrets
 .env
+
+# Local database and generated reports
 data/
 reports/
+*.db
+
+# Private notes / private README
 README_PRIVATE.md
+notes.txt
+notes.ipynb
+
+# Python
 __pycache__/
 *.pyc
+.pytest_cache/
+
+# Virtual environments
 .venv/
+venv/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# OS/editor
+.DS_Store
+.vscode/
 ```
 
 ---
@@ -325,6 +406,7 @@ Completed:
 * Markdown exports
 * Python weighted scoring
 * Human-approved weight updates
+* Public-safe demo seed
 
 ---
 
@@ -363,3 +445,15 @@ Plan → Execute → Evaluate → Optimize
 ```
 
 Jovan OS Lite is the personal MVP version of that broader architecture.
+
+---
+
+## Status
+
+This project is a local MVP and portfolio demonstration of an agentic AI system.
+
+Current focus:
+
+```text
+polish → demo → repository cleanup → public portfolio version
+```
