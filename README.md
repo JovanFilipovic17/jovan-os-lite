@@ -6,7 +6,7 @@ The project was built as a practical exercise in agentic AI engineering, focusin
 
 It is not designed as a generic chatbot. Instead, it is a small working system that stores context, generates plans, evaluates execution, reviews progress, and recommends small adjustments over time.
 
----
+
 
 ## Core Loop
 
