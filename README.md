@@ -18,29 +18,25 @@ Plan → Execute → Evaluate → Save → Dashboard → Weekly Review → Optim
 
 The goal is to turn vague effort into measurable progress.
 
----
-
 ## Main Concept
 
 The system helps a user manage several life or work domains, such as:
 
-* formal education
-* project building
-* health and training
-* career visibility
+- formal education
+- project building
+- health and training
+- career visibility
 
 Each domain can have:
 
-* active goals
-* priority weights
-* daily plans
-* execution logs
-* evaluations
-* optimization recommendations
+- active goals
+- priority weights
+- daily plans
+- execution logs
+- evaluations
+- optimization recommendations
 
 The system keeps persistent state locally and uses agents to reason over recent progress.
-
----
 
 ## Agents
 
@@ -48,14 +44,12 @@ The system keeps persistent state locally and uses agents to reason over recent 
 
 Creates a daily plan based on:
 
-* user input
-* active goals
-* domain weights
-* current context
+- user input
+- active goals
+- domain weights
+- current context
 
 The planner separates required tasks from recommended tasks, so explicit user priorities remain more important than generic weight balancing.
-
----
 
 ### Evaluator Agent
 
@@ -63,17 +57,15 @@ Compares the user's execution log against the latest saved plan.
 
 It identifies:
 
-* completed items
-* missed items
-* unknown items
-* plan completion score
-* domain scores
-* bottlenecks
-* next actions
+- completed items
+- missed items
+- unknown items
+- plan completion score
+- domain scores
+- bottlenecks
+- next actions
 
 The evaluator distinguishes between missed tasks and tasks that were simply not mentioned. This prevents unknown items from being treated as automatic failures.
-
----
 
 ### Weekly Review Agent
 
@@ -81,39 +73,35 @@ Analyzes recent logs and evaluations to detect patterns across multiple days.
 
 It focuses on:
 
-* repeated bottlenecks
-* strongest momentum
-* weak areas
-* recurring missed actions
-* lack of closure
-* useful next actions
+- repeated bottlenecks
+- strongest momentum
+- weak areas
+- recurring missed actions
+- lack of closure
+- useful next actions
 
 Daily evaluation focuses on execution. Weekly review focuses on patterns.
-
----
 
 ### Optimizer Agent
 
 Analyzes:
 
-* active goals
-* current domain weights
-* recent logs
-* recent evaluations
-* repeated bottlenecks
-* strong momentum
-* weak domains
+- active goals
+- current domain weights
+- recent logs
+- recent evaluations
+- repeated bottlenecks
+- strong momentum
+- weak domains
 
 It recommends:
 
-* goal adjustments
-* domain weight changes
-* weekly operating rules
-* concrete targets for the next cycle
+- goal adjustments
+- domain weight changes
+- weekly operating rules
+- concrete targets for the next cycle
 
 The optimizer does not automatically apply changes.
-
----
 
 ## Human Approval Layer
 
@@ -129,19 +117,81 @@ Optimizer recommendation → User review → Manual approval → Database update
 
 This prevents the system from silently changing priorities.
 
----
-
 ## Tech Stack
 
-* Python
-* OpenAI Agents SDK
-* Pydantic structured outputs
-* SQLite
-* Gradio
-* Markdown reports
-* Deterministic Python scoring logic
+- Python
+- OpenAI Agents SDK
+- Pydantic structured outputs
+- SQLite
+- Gradio
+- Markdown reports
+- Deterministic Python scoring logic
 
 ---
+
+## Quick Start
+
+### 1. Clone the repository
+
+```bash
+git clone https://github.com/JovanFilipovic17/jovan-os-lite.git
+cd jovan-os-lite
+```
+
+### 2. Install `uv`
+
+This project uses `uv` for Python dependency management.
+
+If you do not have `uv` installed, install it first from the official Astral `uv` documentation.
+
+### 3. Install dependencies
+
+```bash
+uv sync
+```
+
+### 4. Create a local `.env` file
+
+Create a `.env` file in the project root:
+
+```text
+OPENAI_API_KEY=your_api_key_here
+```
+
+The `.env` file is required locally, but it should never be committed to Git.
+
+### 5. Seed demo data
+
+This repository does not include a private database.
+
+To create a local demo database with synthetic goals and weights, run:
+
+```bash
+uv run seed_demo.py
+```
+
+The demo data uses generic public-safe goals:
+
+```text
+Complete university coursework
+Build AI portfolio projects
+Maintain fitness routine
+Improve career visibility
+```
+
+### 6. Start the app
+
+```bash
+uv run app.py
+```
+
+Open the local Gradio URL shown in the terminal.
+
+It will usually look like:
+
+```text
+http://127.0.0.1:7860
+```
 
 ## Project Structure
 
@@ -165,22 +215,22 @@ jovan_os_lite/
     └── latest_optimization.md
 ```
 
+Note: `data/` and `reports/` are generated locally and are ignored by Git.
+
 ---
 
 ## Main Features
 
-* Daily planning
-* Daily execution evaluation
-* Weekly review
-* Dashboard
-* Optimizer report
-* Persistent SQLite state
-* Markdown report export
-* Pydantic structured outputs
-* Python weighted scoring
-* Human-approved weight updates
-
----
+- Daily planning
+- Daily execution evaluation
+- Weekly review
+- Dashboard
+- Optimizer report
+- Persistent SQLite state
+- Markdown report export
+- Pydantic structured outputs
+- Python weighted scoring
+- Human-approved weight updates
 
 ## Demo Setup
 
@@ -200,14 +250,12 @@ uv run app.py
 
 The demo data uses generic goal titles while keeping the current internal domain identifiers:
 
-* `formalno_obrazovanje` → formal education / coursework
-* `neformalno_obrazovanje` → project building / skill development
-* `sport` → health and training
-* `karijera` → career visibility
+- `formalno_obrazovanje` → formal education / coursework
+- `neformalno_obrazovanje` → project building / skill development
+- `sport` → health and training
+- `karijera` → career visibility
 
 No private user data is included in the repository.
-
----
 
 ## Example Demo Goals
 
@@ -231,8 +279,6 @@ karijera: 20%
 
 These are only synthetic demo values.
 
----
-
 ## Scoring
 
 The evaluator agent produces domain scores and a plan completion score.
@@ -246,8 +292,6 @@ final_score = 0.8 * weighted_domain_score + 0.2 * plan_completion_score
 ```
 
 This keeps the LLM responsible for interpretation, while Python handles deterministic scoring.
-
----
 
 ## Reports
 
@@ -303,13 +347,11 @@ Example system behavior:
 - Next actions recommended
 ```
 
----
-
 ## Privacy Note
 
-This repository should not include private user data.
+This repository does not include private user data.
 
-The following files and folders should stay local and should not be committed:
+The following files and folders are intentionally ignored by Git:
 
 ```text
 .env
@@ -320,11 +362,21 @@ notes.txt
 notes.ipynb
 ```
 
+This means the public repository does not include:
+
+- API keys
+- local SQLite databases
+- private goals
+- personal execution logs
+- generated evaluation reports
+- generated optimizer reports
+- private notes
+
 A public demo should use synthetic goals, logs, and reports instead of personal data.
 
----
+## `.gitignore`
 
-## Example `.gitignore`
+The repository includes a `.gitignore` file to prevent private local files from being committed:
 
 ```gitignore
 # Secrets
@@ -363,32 +415,28 @@ venv/
 
 This project demonstrates practical agentic AI patterns in a real working application:
 
-* multiple agents with different responsibilities
-* structured outputs
-* persistent local state
-* evaluator loop
-* optimizer loop
-* human approval layer
-* deterministic scoring outside the LLM
-* product-oriented agent design
+- multiple agents with different responsibilities
+- structured outputs
+- persistent local state
+- evaluator loop
+- optimizer loop
+- human approval layer
+- deterministic scoring outside the LLM
+- product-oriented agent design
 
 The goal was not to build another chatbot, but to build a small system that can plan, evaluate, learn from history, and recommend improvements.
 
----
-
 ## Agentic AI Concepts Used
 
-* Planner/evaluator pattern
-* Structured outputs
-* Tool/function-based architecture
-* Stateful system design
-* Agent loop
-* Human-in-the-loop approval
-* Optimization loop
-* Markdown report generation
-* SQLite-based local memory
-
----
+- Planner/evaluator pattern
+- Structured outputs
+- Tool/function-based architecture
+- Stateful system design
+- Agent loop
+- Human-in-the-loop approval
+- Optimization loop
+- Markdown report generation
+- SQLite-based local memory
 
 ## Current MVP Status
 
@@ -396,17 +444,17 @@ Jovan OS Lite is currently feature-complete as a local MVP.
 
 Completed:
 
-* Planner Agent
-* Evaluator Agent
-* Weekly Review Agent
-* Optimizer Agent
-* SQLite persistence
-* Gradio UI
-* Dashboard
-* Markdown exports
-* Python weighted scoring
-* Human-approved weight updates
-* Public-safe demo seed
+- Planner Agent
+- Evaluator Agent
+- Weekly Review Agent
+- Optimizer Agent
+- SQLite persistence
+- Gradio UI
+- Dashboard
+- Markdown exports
+- Python weighted scoring
+- Human-approved weight updates
+- Public-safe demo seed
 
 ---
 
@@ -414,29 +462,27 @@ Completed:
 
 Potential future improvements:
 
-* duplicate goal cleanup
-* charts and trends
-* calendar integration
-* GitHub integration
-* Notion integration
-* multi-user support
-* generalized Personal OS version
-* improved goal recommendation workflow
-* hosted demo with synthetic data
+- duplicate goal cleanup
+- charts and trends
+- calendar integration
+- GitHub integration
+- Notion integration
+- multi-user support
+- generalized Personal OS version
+- improved goal recommendation workflow
+- hosted demo with synthetic data
 
 These are intentionally left out of the Lite version to avoid feature creep.
-
----
 
 ## Future Direction
 
 The same architecture could be adapted to other planning and optimization problems, such as:
 
-* project planning
-* study planning
-* personal productivity systems
-* team capacity planning
-* workforce scheduling
+- project planning
+- study planning
+- personal productivity systems
+- team capacity planning
+- workforce scheduling
 
 The reusable pattern is:
 
@@ -445,8 +491,6 @@ Plan → Execute → Evaluate → Optimize
 ```
 
 Jovan OS Lite is the personal MVP version of that broader architecture.
-
----
 
 ## Status
 
@@ -457,3 +501,4 @@ Current focus:
 ```text
 polish → demo → repository cleanup → public portfolio version
 ```
+
