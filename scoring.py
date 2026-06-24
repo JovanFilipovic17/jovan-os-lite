@@ -86,7 +86,7 @@ def calculate_weighted_overall(evaluation, weights, plan_weight=0.2):
     return round(final_score, 1)
 
 
-def update_markdown_overall_score(markdown: str, weighted_score: float, llm_score: float) -> str:
+##def update_markdown_overall_score(markdown: str, weighted_score: float, llm_score: float) -> str:
     """
     Replaces the Overall Score in markdown and adds a note that Python calculated it.
     """
@@ -100,5 +100,29 @@ def update_markdown_overall_score(markdown: str, weighted_score: float, llm_scor
     )
 
     updated = re.sub(pattern, replacement, markdown, count=1)
+
+    return updated
+
+def update_markdown_overall_score(
+    markdown: str,
+    weighted_score: float,
+    llm_score: float,
+) -> str:
+    pattern = r"(## Overall Score\s*\n)\s*([0-9]+(?:\.[0-9]+)?)\s*/\s*10"
+    replacement = (
+        f"## Overall Score\n"
+        f"{weighted_score}/10\n\n"
+        f"_Python weighted score. LLM initial estimate: {llm_score}/10._"
+    )
+
+    updated, n = re.subn(pattern, replacement, markdown, count=1)
+
+    if n == 0:
+        return (
+            f"## Overall Score\n"
+            f"{weighted_score}/10\n\n"
+            f"_Python weighted score. LLM initial estimate: {llm_score}/10._\n\n"
+            f"{markdown}"
+        )
 
     return updated
