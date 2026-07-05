@@ -6,6 +6,11 @@ import json
 DB_PATH = Path("data/jovan_os.db")
 
 
+def configure_database_path(path):
+    global DB_PATH
+    DB_PATH = Path(path)
+
+
 def get_connection():
     DB_PATH.parent.mkdir(exist_ok=True)
     return sqlite3.connect(DB_PATH)
