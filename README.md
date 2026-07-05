@@ -1,3 +1,13 @@
+---
+title: Jovan OS Lite
+emoji: 🐣
+colorFrom: yellow
+colorTo: amber
+sdk: gradio
+app_file: app.py
+pinned: false
+---
+
 # Jovan OS Lite
 
 Jovan OS Lite is a portfolio MVP of a local agentic AI operating system for planning, evaluation, weekly review, and human-approved optimization.
