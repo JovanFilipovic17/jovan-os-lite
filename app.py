@@ -33,6 +33,23 @@ from database import (
     get_latest_optimization,
     create_tables,
     apply_latest_optimization_weights,
+    add_item,
+    get_all_items,
+    get_inbox_items,
+    get_items_by_status,
+    get_items_by_quadrant,
+    classify_item,
+    move_item_status,
+)
+from priority_constants import (
+    LIFE_AREAS,
+    QUADRANTS,
+    LEVELS,
+    FOCUS_STATES,
+    MAX_ACTIVE_NOW,
+    life_area_label,
+    quadrant_label,
+    focus_state_label,
 )
 
 explicit_demo_mode = os.environ.get("DEMO_MODE")
@@ -69,6 +86,186 @@ DOMAIN_LABELS = {
 
 def domain_label(domain):
     return DOMAIN_LABELS.get(domain, domain)
+
+
+LIFE_AREA_CHOICES = [(label, key) for key, label in LIFE_AREAS]
+QUADRANT_CHOICES = [(label, key) for key, label in QUADRANTS]
+LEVEL_CHOICES = [(label, key) for key, label in LEVELS]
+FOCUS_STATE_CHOICES = [(label, key) for key, label in FOCUS_STATES]
+
+
+def item_choice_label(item):
+    (item_id, title, description, life_area, importance, urgency, quadrant,
+     next_action, deadline, status, energy_required, difficulty, notes,
+     created_at, updated_at) = item
+    area = life_area_label(life_area) if life_area else "Not classified yet"
+    quad = quadrant_label(quadrant) if quadrant else "No quadrant yet"
+    return f"#{item_id} {title} ({area}, {quad}, {status})"
+
+
+def item_choices(items):
+    return [(item_choice_label(item), item[0]) for item in items]
+
+
+def classified_items():
+    return [item for item in get_all_items() if item[6]]
+
+
+def classified_item_choices():
+    return item_choices(classified_items())
+
+
+def render_inbox_markdown():
+    items = get_inbox_items()
+
+    if not items:
+        return "_Inbox is empty. Capture something above._"
+
+    lines = []
+    for item in items:
+        (item_id, title, description, life_area, importance, urgency, quadrant,
+         next_action, deadline, status, energy_required, difficulty, notes,
+         created_at, updated_at) = item
+        desc = f" - {description}" if description else ""
+        area = life_area_label(life_area) if life_area else "Not classified yet"
+        quad = quadrant_label(quadrant) if quadrant else "No quadrant yet"
+        lines.append(f"- **#{item_id} {title}**{desc} _(Area: {area}, Quadrant: {quad})_")
+
+    return "\n".join(lines)
+
+
+def render_matrix_markdown():
+    sections = []
+
+    for key, label in QUADRANTS:
+        items = get_items_by_quadrant(key)
+        sections.append(f"### {label}")
+
+        if not items:
+            sections.append("_No items._")
+        else:
+            for item in items:
+                (item_id, title, description, life_area, importance, urgency, quadrant,
+                 next_action, deadline, status, energy_required, difficulty, notes,
+                 created_at, updated_at) = item
+                area = life_area_label(life_area) if life_area else "-"
+                next_act = next_action or "-"
+                deadline_txt = deadline or "-"
+                lane = "Inbox" if status == "inbox" else focus_state_label(status)
+                sections.append(
+                    f"- **#{item_id} {title}** ({area}) - Next: {next_act} - Deadline: {deadline_txt} - Lane: {lane}"
+                )
+
+        sections.append("")
+
+    return "\n".join(sections)
+
+
+def render_focus_markdown():
+    active_items = get_items_by_status("active")
+    scheduled_items = get_items_by_status("scheduled")
+    parking_items = get_items_by_status("parking")
+
+    def render_group(items):
+        if not items:
+            return "_No items._"
+
+        lines = []
+        for item in items:
+            (item_id, title, description, life_area, importance, urgency, quadrant,
+             next_action, deadline, status, energy_required, difficulty, notes,
+             created_at, updated_at) = item
+            area = life_area_label(life_area) if life_area else "-"
+            quad = quadrant_label(quadrant) if quadrant else "-"
+            lines.append(f"- **#{item_id} {title}** ({area}, {quad})")
+
+        return "\n".join(lines)
+
+    warning_md = ""
+    if len(active_items) > MAX_ACTIVE_NOW:
+        warning_md = (
+            f"\n> **Warning:** {len(active_items)} items are Active Now. "
+            f"Keep Active Now to a maximum of {MAX_ACTIVE_NOW} big focuses.\n"
+        )
+
+    return f"""### Active Now ({len(active_items)})
+{warning_md}
+{render_group(active_items)}
+
+### Scheduled ({len(scheduled_items)})
+
+{render_group(scheduled_items)}
+
+### Parking ({len(parking_items)})
+
+{render_group(parking_items)}
+"""
+
+
+def ui_add_item(title, description):
+    if not title.strip():
+        return "Enter a title before adding to the inbox.", render_inbox_markdown()
+
+    add_item(title.strip(), description.strip())
+    return "Added to inbox.", render_inbox_markdown()
+
+
+def ui_refresh_matrix():
+    return gr.Dropdown(choices=item_choices(get_all_items())), render_matrix_markdown()
+
+
+def ui_classify_item(
+    item_id, life_area, importance, urgency, quadrant,
+    next_action, deadline, energy_required, difficulty, notes,
+):
+    dropdown_update = gr.Dropdown(choices=item_choices(get_all_items()))
+
+    if item_id is None:
+        return "Select an item first.", render_matrix_markdown(), dropdown_update
+
+    if not quadrant:
+        return "Select a quadrant (Q1-Q4) before saving.", render_matrix_markdown(), dropdown_update
+
+    classify_item(
+        item_id,
+        life_area=life_area,
+        importance=importance,
+        urgency=urgency,
+        quadrant=quadrant,
+        next_action=next_action,
+        deadline=deadline,
+        energy_required=energy_required,
+        difficulty=difficulty,
+        notes=notes,
+    )
+
+    return "Item classified.", render_matrix_markdown(), gr.Dropdown(choices=item_choices(get_all_items()))
+
+
+def ui_refresh_focus():
+    return gr.Dropdown(choices=classified_item_choices()), render_focus_markdown()
+
+
+def ui_move_item(item_id, target_status):
+    dropdown_update = gr.Dropdown(choices=classified_item_choices())
+
+    if item_id is None:
+        return "Select an item first.", render_focus_markdown(), dropdown_update
+
+    if not target_status:
+        return "Select a target lane first.", render_focus_markdown(), dropdown_update
+
+    try:
+        active_count, warning = move_item_status(item_id, target_status)
+    except ValueError as exc:
+        return str(exc), render_focus_markdown(), dropdown_update
+
+    message = f"Item moved to {focus_state_label(target_status)}."
+    if warning:
+        message += f" Warning: {active_count} items are now Active Now (recommended max: {MAX_ACTIVE_NOW})."
+
+    return message, render_focus_markdown(), gr.Dropdown(choices=classified_item_choices())
+
 
 def run_planner(request):
     if not request.strip():
@@ -591,7 +788,7 @@ body {
 
 .gradio-container .tab-nav {
     display: grid !important;
-    grid-template-columns: repeat(5, minmax(0, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
     gap: 6px !important;
     margin: 20px 20px 0 !important;
     padding: 6px !important;
@@ -616,6 +813,65 @@ body {
     background: #fffaf0 !important;
     color: #4f391c !important;
     box-shadow: 0 5px 13px rgba(79, 64, 40, 0.14) !important;
+}
+
+.jos-top-tabs > .tab-nav {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    margin: 20px 20px 4px !important;
+    padding: 7px !important;
+    background: #e3d0a0 !important;
+    border-radius: 16px !important;
+}
+
+.jos-top-tabs > .tab-nav button {
+    min-height: 48px;
+    border-radius: 12px !important;
+    font-size: 16.5px !important;
+    font-weight: 780 !important;
+    letter-spacing: 0.1px;
+    color: #6d5434 !important;
+}
+
+.jos-top-tabs > .tab-nav button.selected {
+    background: #d7aa58 !important;
+    color: #1f1a12 !important;
+    box-shadow: 0 8px 18px rgba(180, 129, 48, 0.3) !important;
+}
+
+.jos-sub-tabs > .tab-nav {
+    grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)) !important;
+    margin: 4px 20px 0 !important;
+    padding: 5px !important;
+    background: #efe6d3 !important;
+}
+
+.jos-sub-tabs > .tab-nav button {
+    min-height: 34px;
+    font-size: 13px !important;
+    font-weight: 540 !important;
+    color: #7c6a4a !important;
+}
+
+.jos-sub-tabs > .tab-nav button.selected {
+    background: #fffaf0 !important;
+    color: #4f391c !important;
+    box-shadow: 0 4px 10px rgba(79, 64, 40, 0.12) !important;
+}
+
+.jos-section-intro {
+    margin: 16px 20px 0;
+    padding: 14px 18px;
+    border: 1px solid var(--jos-border-soft);
+    border-radius: 12px;
+    background: linear-gradient(180deg, #fffdf8 0%, #fbf3e4 100%);
+    box-shadow: var(--jos-shadow-soft);
+}
+
+.jos-section-intro p {
+    margin: 0;
+    color: #172033;
+    font-size: 14.5px;
+    line-height: 1.45;
 }
 
 .gradio-container textarea,
@@ -721,152 +977,331 @@ with gr.Blocks(title="Jovan OS Lite") as app:
     gr.HTML(DEMO_NOTICE_MD if DEMO_MODE else LIVE_NOTICE_MD)
 
     with gr.Group(elem_classes="jos-tabs-shell"):
-        with gr.Tab("Planner"):
-            with gr.Group(elem_classes="jos-panel"):
-                gr.HTML("<h2 class='jos-screen-title'>Planner Screen</h2>")
+        with gr.Tabs(elem_classes="jos-top-tabs"):
+            with gr.Tab("Priority OS"):
                 gr.HTML(
                     """
-                    <div class="jos-info">
-                      <h3>Planner Agent</h3>
-                      <p>Creates structured daily plans from goals, weights, user request, and recent context.</p>
+                    <div class="jos-section-intro">
+                      <p>Capture ideas, classify priorities, and limit active focus so the system helps decide what matters now.</p>
                     </div>
                     """
                 )
-                with gr.Group(elem_classes="jos-request-block"):
-                    planner_input = gr.Textbox(
-                        label="Plan Request",
-                        lines=5,
-                        placeholder="Example: I have 4 hours today. Priorities: study, project work, and training. Energy: 8/10.",
-                    )
-                with gr.Row(elem_classes="jos-action-row"):
-                    planner_button = gr.Button("Generate Plan", variant="primary")
-                with gr.Group(elem_classes="jos-output-card"):
-                    gr.HTML("<h3>Generated Plan</h3>")
-                    planner_output = gr.Markdown(
-                        value="<div class='jos-placeholder'>No plan generated yet. Submit a request above to generate a structured plan.</div>",
-                        elem_classes="jos-output",
-                    )
+                with gr.Tabs(elem_classes="jos-sub-tabs"):
+                    with gr.Tab("Inbox"):
+                        with gr.Group(elem_classes="jos-panel"):
+                            gr.HTML("<h2 class='jos-screen-title'>Brain Dump Inbox</h2>")
+                            gr.HTML(
+                                """
+                                <div class="jos-info">
+                                  <h3>Capture First, Classify Later</h3>
+                                  <p>Drop in ideas, obligations, worries, or projects here. Nothing becomes active until it is classified in the Matrix tab.</p>
+                                </div>
+                                """
+                            )
+                            with gr.Group(elem_classes="jos-request-block"):
+                                inbox_title_input = gr.Textbox(
+                                    label="Title",
+                                    placeholder="Example: Finish portfolio website v1.1",
+                                )
+                                inbox_description_input = gr.Textbox(
+                                    label="Description / Notes",
+                                    lines=3,
+                                    placeholder="Optional details, context, or why this matters.",
+                                )
+                            with gr.Row(elem_classes="jos-action-row"):
+                                inbox_add_button = gr.Button("Add to Inbox", variant="primary")
+                            with gr.Group(elem_classes="jos-output-card"):
+                                gr.HTML("<h3>Add Status</h3>")
+                                inbox_status_output = gr.Markdown(
+                                    value="<div class='jos-placeholder'>Nothing added yet.</div>",
+                                    elem_classes="jos-output compact",
+                                )
+                            with gr.Group(elem_classes="jos-output-card"):
+                                gr.HTML("<h3>Unclassified Inbox Items</h3>")
+                                inbox_list_output = gr.Markdown(
+                                    value=render_inbox_markdown(),
+                                    elem_classes="jos-output",
+                                )
 
-            planner_button.click(
-                fn=run_planner,
-                inputs=planner_input,
-                outputs=planner_output,
-            )
+                        inbox_add_button.click(
+                            fn=ui_add_item,
+                            inputs=[inbox_title_input, inbox_description_input],
+                            outputs=[inbox_status_output, inbox_list_output],
+                        )
 
-        with gr.Tab("Evaluator"):
-            with gr.Group(elem_classes="jos-panel"):
-                gr.HTML("<h2 class='jos-screen-title'>Evaluator Screen</h2>")
+                    with gr.Tab("Matrix"):
+                        with gr.Group(elem_classes="jos-panel"):
+                            gr.HTML("<h2 class='jos-screen-title'>Eisenhower Matrix</h2>")
+                            gr.HTML(
+                                """
+                                <div class="jos-info">
+                                  <h3>Classify Items</h3>
+                                  <p>Assign a life area, importance, urgency, quadrant, next action, and deadline. An item needs a quadrant before it can move to Active Now, Scheduled, or Parking.</p>
+                                </div>
+                                """
+                            )
+
+                            matrix_item_dropdown = gr.Dropdown(
+                                label="Select Item",
+                                choices=item_choices(get_all_items()),
+                            )
+
+                            with gr.Row():
+                                matrix_life_area = gr.Dropdown(label="Life Area", choices=LIFE_AREA_CHOICES)
+                                matrix_quadrant = gr.Dropdown(label="Quadrant", choices=QUADRANT_CHOICES)
+
+                            with gr.Row():
+                                matrix_importance = gr.Dropdown(label="Importance", choices=LEVEL_CHOICES)
+                                matrix_urgency = gr.Dropdown(label="Urgency", choices=LEVEL_CHOICES)
+
+                            with gr.Row():
+                                matrix_energy = gr.Dropdown(label="Energy Required", choices=LEVEL_CHOICES)
+                                matrix_difficulty = gr.Dropdown(label="Difficulty", choices=LEVEL_CHOICES)
+
+                            matrix_next_action = gr.Textbox(label="Next Action", placeholder="The single next concrete step.")
+                            matrix_deadline = gr.Textbox(label="Deadline", placeholder="Optional, e.g. 2026-07-20")
+                            matrix_notes = gr.Textbox(label="Notes", lines=3)
+
+                            with gr.Row(elem_classes="jos-action-row"):
+                                matrix_classify_button = gr.Button("Save Classification", variant="primary")
+                                matrix_refresh_button = gr.Button("Refresh", variant="secondary")
+
+                            with gr.Group(elem_classes="jos-output-card"):
+                                gr.HTML("<h3>Classification Status</h3>")
+                                matrix_status_output = gr.Markdown(
+                                    value="<div class='jos-placeholder'>No changes yet.</div>",
+                                    elem_classes="jos-output compact",
+                                )
+
+                            with gr.Group(elem_classes="jos-output-card"):
+                                gr.HTML("<h3>Matrix Board</h3>")
+                                matrix_board_output = gr.Markdown(
+                                    value=render_matrix_markdown(),
+                                    elem_classes="jos-output",
+                                )
+
+                        matrix_classify_button.click(
+                            fn=ui_classify_item,
+                            inputs=[
+                                matrix_item_dropdown, matrix_life_area, matrix_importance, matrix_urgency,
+                                matrix_quadrant, matrix_next_action, matrix_deadline, matrix_energy,
+                                matrix_difficulty, matrix_notes,
+                            ],
+                            outputs=[matrix_status_output, matrix_board_output, matrix_item_dropdown],
+                        )
+
+                        matrix_refresh_button.click(
+                            fn=ui_refresh_matrix,
+                            inputs=[],
+                            outputs=[matrix_item_dropdown, matrix_board_output],
+                        )
+
+                    with gr.Tab("Active Now"):
+                        with gr.Group(elem_classes="jos-panel"):
+                            gr.HTML("<h2 class='jos-screen-title'>Active Now / Scheduled / Parking</h2>")
+                            gr.HTML(
+                                f"""
+                                <div class="jos-info">
+                                  <h3>Focus Discipline</h3>
+                                  <p>Only classified items (with a quadrant) can move here. Keep Active Now to a maximum of {MAX_ACTIVE_NOW} big focuses.</p>
+                                </div>
+                                """
+                            )
+
+                            focus_item_dropdown = gr.Dropdown(
+                                label="Select Classified Item",
+                                choices=classified_item_choices(),
+                            )
+                            focus_target_dropdown = gr.Dropdown(
+                                label="Move To",
+                                choices=FOCUS_STATE_CHOICES,
+                            )
+
+                            with gr.Row(elem_classes="jos-action-row"):
+                                focus_move_button = gr.Button("Move Item", variant="primary")
+                                focus_refresh_button = gr.Button("Refresh", variant="secondary")
+
+                            with gr.Group(elem_classes="jos-output-card"):
+                                gr.HTML("<h3>Move Status</h3>")
+                                focus_status_output = gr.Markdown(
+                                    value="<div class='jos-placeholder'>No changes yet.</div>",
+                                    elem_classes="jos-output compact",
+                                )
+
+                            with gr.Group(elem_classes="jos-output-card"):
+                                gr.HTML("<h3>Focus Board</h3>")
+                                focus_board_output = gr.Markdown(
+                                    value=render_focus_markdown(),
+                                    elem_classes="jos-output",
+                                )
+
+                        focus_move_button.click(
+                            fn=ui_move_item,
+                            inputs=[focus_item_dropdown, focus_target_dropdown],
+                            outputs=[focus_status_output, focus_board_output, focus_item_dropdown],
+                        )
+
+                        focus_refresh_button.click(
+                            fn=ui_refresh_focus,
+                            inputs=[],
+                            outputs=[focus_item_dropdown, focus_board_output],
+                        )
+
+            with gr.Tab("Agent Workflow"):
                 gr.HTML(
                     """
-                    <div class="jos-info">
-                      <h3>Evaluator Agent</h3>
-                      <p>Compares the execution log against the latest saved plan and calculates a Python weighted score.</p>
+                    <div class="jos-section-intro">
+                      <p>Use the original agent loop to generate plans, evaluate execution, review progress, and optimize priorities.</p>
                     </div>
                     """
                 )
-                evaluator_input = gr.Textbox(
-                    label="Daily Log",
-                    lines=7,
-                    placeholder="Example: Completed a study block, fixed one project issue, and skipped training due to time constraints.",
-                )
-                evaluator_button = gr.Button("Evaluate Day", variant="primary")
-                with gr.Group(elem_classes="jos-output-card"):
-                    gr.HTML("<h3>Daily Evaluation</h3>")
-                    evaluator_output = gr.Markdown(
-                        value="<div class='jos-placeholder'>No evaluation generated yet. Submit a daily log above to generate a review.</div>",
-                        elem_classes="jos-output",
-                    )
+                with gr.Tabs(elem_classes="jos-sub-tabs"):
+                    with gr.Tab("Planner"):
+                        with gr.Group(elem_classes="jos-panel"):
+                            gr.HTML("<h2 class='jos-screen-title'>Planner Screen</h2>")
+                            gr.HTML(
+                                """
+                                <div class="jos-info">
+                                  <h3>Planner Agent</h3>
+                                  <p>Creates structured daily plans from goals, weights, user request, and recent context.</p>
+                                </div>
+                                """
+                            )
+                            with gr.Group(elem_classes="jos-request-block"):
+                                planner_input = gr.Textbox(
+                                    label="Plan Request",
+                                    lines=5,
+                                    placeholder="Example: I have 4 hours today. Priorities: study, project work, and training. Energy: 8/10.",
+                                )
+                            with gr.Row(elem_classes="jos-action-row"):
+                                planner_button = gr.Button("Generate Plan", variant="primary")
+                            with gr.Group(elem_classes="jos-output-card"):
+                                gr.HTML("<h3>Generated Plan</h3>")
+                                planner_output = gr.Markdown(
+                                    value="<div class='jos-placeholder'>No plan generated yet. Submit a request above to generate a structured plan.</div>",
+                                    elem_classes="jos-output",
+                                )
 
-            evaluator_button.click(
-                fn=run_evaluator,
-                inputs=evaluator_input,
-                outputs=evaluator_output,
-            )
+                        planner_button.click(
+                            fn=run_planner,
+                            inputs=planner_input,
+                            outputs=planner_output,
+                        )
 
-        with gr.Tab("Dashboard"):
-            with gr.Group(elem_classes="jos-panel"):
-                gr.HTML("<h2 class='jos-screen-title'>Dashboard</h2>")
-                gr.HTML(
-                    """
-                    <div class="jos-info">
-                      <h3>Dashboard</h3>
-                      <p>Shows the latest saved state from SQLite: goals, weights, plans, evaluations, and optimizer reports.</p>
-                    </div>
-                    """
-                )
-                refresh_button = gr.Button("Refresh Dashboard", variant="primary")
-                with gr.Group(elem_classes="jos-output-card"):
-                    gr.HTML("<h3>Saved State</h3>")
-                    dashboard_output = gr.Markdown(value=dashboard(), elem_classes="jos-output")
+                    with gr.Tab("Evaluator"):
+                        with gr.Group(elem_classes="jos-panel"):
+                            gr.HTML("<h2 class='jos-screen-title'>Evaluator Screen</h2>")
+                            gr.HTML(
+                                """
+                                <div class="jos-info">
+                                  <h3>Evaluator Agent</h3>
+                                  <p>Compares the execution log against the latest saved plan and calculates a Python weighted score.</p>
+                                </div>
+                                """
+                            )
+                            evaluator_input = gr.Textbox(
+                                label="Daily Log",
+                                lines=7,
+                                placeholder="Example: Completed a study block, fixed one project issue, and skipped training due to time constraints.",
+                            )
+                            evaluator_button = gr.Button("Evaluate Day", variant="primary")
+                            with gr.Group(elem_classes="jos-output-card"):
+                                gr.HTML("<h3>Daily Evaluation</h3>")
+                                evaluator_output = gr.Markdown(
+                                    value="<div class='jos-placeholder'>No evaluation generated yet. Submit a daily log above to generate a review.</div>",
+                                    elem_classes="jos-output",
+                                )
 
-            refresh_button.click(
-                fn=dashboard,
-                inputs=[],
-                outputs=dashboard_output,
-            )
+                        evaluator_button.click(
+                            fn=run_evaluator,
+                            inputs=evaluator_input,
+                            outputs=evaluator_output,
+                        )
 
-        with gr.Tab("Optimizer"):
-            with gr.Group(elem_classes="jos-panel"):
-                gr.HTML("<h2 class='jos-screen-title'>Optimizer Screen</h2>")
-                gr.HTML(
-                    """
-                    <div class="jos-info">
-                      <h3>Optimizer Agent</h3>
-                      <p>Reviews recent progress and recommends small changes. Weight updates require human approval.</p>
-                    </div>
-                    """
-                )
-                optimizer_button = gr.Button("Generate Optimizer Report", variant="primary")
-                with gr.Group(elem_classes="jos-output-card"):
-                    gr.HTML("<h3>Optimizer Report</h3>")
-                    optimizer_output = gr.Markdown(
-                        value="<div class='jos-placeholder'>No optimizer report generated yet.</div>",
-                        elem_classes="jos-output",
-                    )
-                apply_weights_button = gr.Button("Apply", variant="primary")
-                with gr.Group(elem_classes="jos-output-card"):
-                    gr.HTML("<h3>Weight Application Result</h3>")
-                    apply_weights_output = gr.Markdown(
-                        value="<div class='jos-placeholder'>No weight recommendation applied yet.</div>",
-                        elem_classes="jos-output compact",
-                    )
+                    with gr.Tab("Dashboard"):
+                        with gr.Group(elem_classes="jos-panel"):
+                            gr.HTML("<h2 class='jos-screen-title'>Dashboard</h2>")
+                            gr.HTML(
+                                """
+                                <div class="jos-info">
+                                  <h3>Dashboard</h3>
+                                  <p>Shows the latest saved state from SQLite: goals, weights, plans, evaluations, and optimizer reports.</p>
+                                </div>
+                                """
+                            )
+                            refresh_button = gr.Button("Refresh Dashboard", variant="primary")
+                            with gr.Group(elem_classes="jos-output-card"):
+                                gr.HTML("<h3>Saved State</h3>")
+                                dashboard_output = gr.Markdown(value=dashboard(), elem_classes="jos-output")
 
-            optimizer_button.click(
-                fn=run_optimizer,
-                inputs=[],
-                outputs=optimizer_output,
-            )
+                        refresh_button.click(
+                            fn=dashboard,
+                            inputs=[],
+                            outputs=dashboard_output,
+                        )
 
-            apply_weights_button.click(
-                fn=run_apply_latest_weights,
-                inputs=[],
-                outputs=apply_weights_output,
-            )
+                    with gr.Tab("Optimizer"):
+                        with gr.Group(elem_classes="jos-panel"):
+                            gr.HTML("<h2 class='jos-screen-title'>Optimizer Screen</h2>")
+                            gr.HTML(
+                                """
+                                <div class="jos-info">
+                                  <h3>Optimizer Agent</h3>
+                                  <p>Reviews recent progress and recommends small changes. Weight updates require human approval.</p>
+                                </div>
+                                """
+                            )
+                            optimizer_button = gr.Button("Generate Optimizer Report", variant="primary")
+                            with gr.Group(elem_classes="jos-output-card"):
+                                gr.HTML("<h3>Optimizer Report</h3>")
+                                optimizer_output = gr.Markdown(
+                                    value="<div class='jos-placeholder'>No optimizer report generated yet.</div>",
+                                    elem_classes="jos-output",
+                                )
+                            apply_weights_button = gr.Button("Apply", variant="primary")
+                            with gr.Group(elem_classes="jos-output-card"):
+                                gr.HTML("<h3>Weight Application Result</h3>")
+                                apply_weights_output = gr.Markdown(
+                                    value="<div class='jos-placeholder'>No weight recommendation applied yet.</div>",
+                                    elem_classes="jos-output compact",
+                                )
 
-        with gr.Tab("Weekly Review"):
-            with gr.Group(elem_classes="jos-panel"):
-                gr.HTML("<h2 class='jos-screen-title'>Weekly Review Screen</h2>")
-                gr.HTML(
-                    """
-                    <div class="jos-info">
-                      <h3>Weekly Review Agent</h3>
-                      <p>Detects patterns across recent logs and evaluations, including bottlenecks and momentum.</p>
-                    </div>
-                    """
-                )
-                weekly_button = gr.Button("Generate Weekly Review", variant="primary")
-                with gr.Group(elem_classes="jos-output-card"):
-                    gr.HTML("<h3>Weekly Review</h3>")
-                    weekly_output = gr.Markdown(
-                        value="<div class='jos-placeholder'>No weekly review generated yet.</div>",
-                        elem_classes="jos-output",
-                    )
+                        optimizer_button.click(
+                            fn=run_optimizer,
+                            inputs=[],
+                            outputs=optimizer_output,
+                        )
 
-            weekly_button.click(
-                fn=run_weekly_review,
-                inputs=[],
-                outputs=weekly_output,
-            )
+                        apply_weights_button.click(
+                            fn=run_apply_latest_weights,
+                            inputs=[],
+                            outputs=apply_weights_output,
+                        )
+
+                    with gr.Tab("Weekly Review"):
+                        with gr.Group(elem_classes="jos-panel"):
+                            gr.HTML("<h2 class='jos-screen-title'>Weekly Review Screen</h2>")
+                            gr.HTML(
+                                """
+                                <div class="jos-info">
+                                  <h3>Weekly Review Agent</h3>
+                                  <p>Detects patterns across recent logs and evaluations, including bottlenecks and momentum.</p>
+                                </div>
+                                """
+                            )
+                            weekly_button = gr.Button("Generate Weekly Review", variant="primary")
+                            with gr.Group(elem_classes="jos-output-card"):
+                                gr.HTML("<h3>Weekly Review</h3>")
+                                weekly_output = gr.Markdown(
+                                    value="<div class='jos-placeholder'>No weekly review generated yet.</div>",
+                                    elem_classes="jos-output",
+                                )
+
+                        weekly_button.click(
+                            fn=run_weekly_review,
+                            inputs=[],
+                            outputs=weekly_output,
+                        )
 
 if __name__ == "__main__":
     app.launch(inbrowser=True, theme=theme, css=APP_CSS)
