@@ -41,6 +41,12 @@ from database import (
     classify_item,
     move_item_status,
 )
+from status_update_parser import (
+    parse_status_update,
+    suggest_system_action,
+    build_notes_block,
+    render_status_update_markdown,
+)
 from priority_constants import (
     LIFE_AREAS,
     LIFE_AREA_LABELS,
@@ -50,6 +56,10 @@ from priority_constants import (
     MAX_ACTIVE_NOW,
     MAX_ACTIVE_PER_LIFE_AREA,
     MAX_Q1_ITEMS_WARNING,
+    DEFAULT_MIN_TRAINING_SESSIONS,
+    TRAINING_LIFE_AREA_KEY,
+    QUADRANT_PRIORITY_RANK,
+    FOCUS_STATE_PRIORITY_RANK,
     life_area_label,
     quadrant_label,
     focus_state_label,
@@ -250,10 +260,8 @@ def compute_life_area_report():
     }
 
 
-def render_life_areas_markdown():
-    report = compute_life_area_report()
+def compute_overload_warnings(report):
     groups = report["groups"]
-
     warnings = []
 
     if report["total_q1"] > MAX_Q1_ITEMS_WARNING:
@@ -278,6 +286,15 @@ def render_life_areas_markdown():
             f"**Concentrated focus:** {', '.join(overloaded_areas)} {verb} more than "
             f"{MAX_ACTIVE_PER_LIFE_AREA} Active Now item(s). Spread focus across life areas."
         )
+
+    return warnings
+
+
+def render_life_areas_markdown():
+    report = compute_life_area_report()
+    groups = report["groups"]
+
+    warnings = compute_overload_warnings(report)
 
     if warnings:
         warning_md = "### Overload Warnings\n\n" + "\n".join(f"- {w}" for w in warnings)
@@ -321,6 +338,204 @@ Quadrants: Q1: {stats['Q1']} - Q2: {stats['Q2']} - Q3: {stats['Q3']} - Q4: {stat
 
 def ui_refresh_life_areas():
     return render_life_areas_markdown()
+
+
+def item_summary_line(item):
+    (item_id, title, description, life_area, importance, urgency, quadrant,
+     next_action, deadline, status, energy_required, difficulty, notes,
+     created_at, updated_at) = item
+    area = life_area_label(life_area) if life_area else "Not classified yet"
+    quad = quadrant_label(quadrant) if quadrant else "No quadrant yet"
+    next_act = next_action or "-"
+    deadline_txt = deadline or "-"
+    return f"- **#{item_id} {title}** ({area}, {quad}) - Next: {next_act} - Deadline: {deadline_txt}"
+
+
+def render_item_list(items):
+    if not items:
+        return "_None._"
+    return "\n".join(item_summary_line(item) for item in items)
+
+
+def compute_priority_review():
+    items = get_all_items()
+    life_area_report = compute_life_area_report()
+
+    finish_first = sorted(
+        (item for item in items if item[9] == "active"),
+        key=lambda item: QUADRANT_PRIORITY_RANK.get(item[6], 4),
+    )
+
+    park_candidates = [
+        item for item in items
+        if item[6] == "Q4" and item[9] in ("inbox", "active", "scheduled")
+    ]
+
+    schedule_candidates = [
+        item for item in items
+        if item[6] == "Q2" and item[9] == "inbox"
+    ]
+
+    top3 = sorted(
+        (item for item in items if item[9] != "parking"),
+        key=lambda item: (
+            FOCUS_STATE_PRIORITY_RANK.get(item[9], 9),
+            QUADRANT_PRIORITY_RANK.get(item[6], 4),
+            item[0],
+        ),
+    )[:3]
+
+    training_items = [item for item in items if item[3] == TRAINING_LIFE_AREA_KEY]
+    training_in_focus = [item for item in training_items if item[9] in ("active", "scheduled")]
+
+    return {
+        "life_area_report": life_area_report,
+        "finish_first": finish_first,
+        "park_candidates": park_candidates,
+        "schedule_candidates": schedule_candidates,
+        "top3": top3,
+        "training_items": training_items,
+        "training_in_focus": training_in_focus,
+    }
+
+
+def render_priority_review_markdown():
+    data = compute_priority_review()
+    life_area_report = data["life_area_report"]
+    overload_warnings = compute_overload_warnings(life_area_report)
+
+    total_active = sum(stats["active"] for stats in life_area_report["groups"].values())
+    total_q1 = life_area_report["total_q1"]
+    q2_total = life_area_report["q2_total"]
+    q2_in_focus = life_area_report["q2_in_focus"]
+
+    concentrated_warnings = [w for w in overload_warnings if w.startswith("**Concentrated")]
+    focus_lines = [f"- Active Now: {total_active}/{MAX_ACTIVE_NOW} total."]
+    if concentrated_warnings:
+        focus_lines.extend(f"- {w}" for w in concentrated_warnings)
+    else:
+        focus_lines.append("- _No single life area is over-concentrated._")
+
+    if total_q1 > MAX_Q1_ITEMS_WARNING:
+        q1_answer = (
+            f"**Yes.** {total_q1} Q1 items are open (recommended limit: {MAX_Q1_ITEMS_WARNING}). "
+            f"Park or downgrade some before treating anything new as urgent."
+        )
+    else:
+        q1_answer = f"No. {total_q1} Q1 item(s), within the recommended limit of {MAX_Q1_ITEMS_WARNING}."
+
+    if q2_total > 0 and q2_in_focus == 0:
+        q2_answer = (
+            f"**Yes.** {q2_total} Q2 item(s) exist and none are Active Now or Scheduled. "
+            f"Long-term priorities are being ignored."
+        )
+    else:
+        q2_answer = f"No. {q2_in_focus} of {q2_total} Q2 item(s) are already Active Now or Scheduled."
+
+    if data["training_in_focus"]:
+        training_note = (
+            f"Minimum training target: {DEFAULT_MIN_TRAINING_SESSIONS} sessions this week. "
+            f"{len(data['training_in_focus'])} training item(s) already Active Now or Scheduled - "
+            f"keep it as maintenance, not a project."
+        )
+    elif data["training_items"]:
+        training_note = (
+            f"Minimum training target: {DEFAULT_MIN_TRAINING_SESSIONS} sessions this week. "
+            f"Training items exist but none are Active Now or Scheduled yet - move at least one."
+        )
+    else:
+        training_note = (
+            f"No Training / Health items tracked yet. Recommended minimum: "
+            f"{DEFAULT_MIN_TRAINING_SESSIONS} sessions this week to keep it a stabilizer, not a project."
+        )
+
+    return f"""# Weekly Priority Review
+
+## What Should Be Finished First
+_Active Now items, in priority order (Q1 first)._
+
+{render_item_list(data['finish_first'])}
+
+## What Should Be Scheduled
+_Q2 items still sitting unclassified in the Inbox lane._
+
+{render_item_list(data['schedule_candidates'])}
+
+## What Should Be Parked
+_Q4 items that are not yet parked._
+
+{render_item_list(data['park_candidates'])}
+
+## Where Is There Too Much Active Focus?
+
+{chr(10).join(focus_lines)}
+
+## Are There Too Many Q1 Urgent Items?
+
+{q1_answer}
+
+## Are Q2 Important Items Neglected?
+
+{q2_answer}
+
+## Top 3 Priorities This Week
+
+{render_item_list(data['top3'])}
+
+## Minimum Training Target This Week
+
+{training_note}
+"""
+
+
+def ui_refresh_priority_review():
+    return render_priority_review_markdown()
+
+
+def ui_parse_status_update(raw_text):
+    parsed = parse_status_update(raw_text)
+
+    if not parsed:
+        placeholder = "<div class='jos-placeholder'>Enter a status update above and click Parse Update.</div>"
+        return placeholder, None
+
+    suggestion = suggest_system_action(parsed, get_all_items())
+    markdown = render_status_update_markdown(parsed, suggestion)
+    return markdown, {"parsed": parsed, "suggestion": suggestion}
+
+
+def ui_apply_status_action(state):
+    if not state:
+        return "Parse an update before applying a system action."
+
+    parsed = state["parsed"]
+    suggestion = state["suggestion"]
+    action = suggestion["action"]
+    notes = build_notes_block(parsed)
+
+    if action == "update":
+        classify_item(
+            suggestion["item_id"],
+            life_area=parsed["life_area"],
+            quadrant=parsed["quadrant"],
+            next_action=parsed["next_action"] or "",
+            notes=notes,
+        )
+        return f"Updated existing item #{suggestion['item_id']}."
+
+    if action == "create":
+        title = f"{parsed['life_area_label']} update - {parsed['status_label']}"
+        item_id = add_item(title, description=parsed["raw_text"], notes=notes)
+        classify_item(
+            item_id,
+            life_area=parsed["life_area"],
+            quadrant=parsed["quadrant"],
+            next_action=parsed["next_action"] or "",
+            notes=notes,
+        )
+        return f"Created new item #{item_id}."
+
+    return "Kept as a note only - no item created."
 
 
 def ui_add_item(title, description):
@@ -1294,6 +1509,89 @@ with gr.Blocks(title="Jovan OS Lite") as app:
                             fn=ui_refresh_life_areas,
                             inputs=[],
                             outputs=[life_areas_output],
+                        )
+
+                    with gr.Tab("Priority Review"):
+                        with gr.Group(elem_classes="jos-panel"):
+                            gr.HTML("<h2 class='jos-screen-title'>Weekly Priority Review</h2>")
+                            gr.HTML(
+                                """
+                                <div class="jos-info">
+                                  <h3>Decision-Focused, Not Motivational</h3>
+                                  <p>A deterministic read of the current items table: what to finish, park, or schedule, whether focus is overloaded, and the top 3 priorities for this week. No AI call yet - pure rules over your current data.</p>
+                                </div>
+                                """
+                            )
+
+                            with gr.Row(elem_classes="jos-action-row"):
+                                priority_review_refresh_button = gr.Button("Refresh", variant="secondary")
+
+                            with gr.Group(elem_classes="jos-output-card"):
+                                gr.HTML("<h3>Priority Review</h3>")
+                                priority_review_output = gr.Markdown(
+                                    value=render_priority_review_markdown(),
+                                    elem_classes="jos-output",
+                                )
+
+                        priority_review_refresh_button.click(
+                            fn=ui_refresh_priority_review,
+                            inputs=[],
+                            outputs=[priority_review_output],
+                        )
+
+                    with gr.Tab("Status Update"):
+                        with gr.Group(elem_classes="jos-panel"):
+                            gr.HTML("<h2 class='jos-screen-title'>Status Update Parser</h2>")
+                            gr.HTML(
+                                """
+                                <div class="jos-info">
+                                  <h3>Capture Messy Updates, Get a Structured Read</h3>
+                                  <p>Paste a raw, natural-language update. This deterministically classifies it into life area, quadrant, status, blocker, next action, and a recommended decision - Q1 can mean "waiting on external input", not just "work on it now".</p>
+                                </div>
+                                """
+                            )
+
+                            status_update_input = gr.Textbox(
+                                label="Status Update",
+                                lines=4,
+                                placeholder=(
+                                    "Example: Sent diploma for translation, waiting until Friday, "
+                                    "apostille planned Friday, landlord sends contract next week."
+                                ),
+                            )
+
+                            with gr.Row(elem_classes="jos-action-row"):
+                                status_update_parse_button = gr.Button("Parse Update", variant="primary")
+
+                            with gr.Group(elem_classes="jos-output-card"):
+                                gr.HTML("<h3>Parsed Result</h3>")
+                                status_update_output = gr.Markdown(
+                                    value="<div class='jos-placeholder'>Enter a status update above and click Parse Update.</div>",
+                                    elem_classes="jos-output",
+                                )
+
+                            status_update_state = gr.State(value=None)
+
+                            with gr.Row(elem_classes="jos-action-row"):
+                                status_update_apply_button = gr.Button("Apply Suggested System Action", variant="secondary")
+
+                            with gr.Group(elem_classes="jos-output-card"):
+                                gr.HTML("<h3>Apply Status</h3>")
+                                status_update_apply_output = gr.Markdown(
+                                    value="<div class='jos-placeholder'>No action applied yet.</div>",
+                                    elem_classes="jos-output compact",
+                                )
+
+                        status_update_parse_button.click(
+                            fn=ui_parse_status_update,
+                            inputs=[status_update_input],
+                            outputs=[status_update_output, status_update_state],
+                        )
+
+                        status_update_apply_button.click(
+                            fn=ui_apply_status_action,
+                            inputs=[status_update_state],
+                            outputs=[status_update_apply_output],
                         )
 
             with gr.Tab("Agent Workflow"):
