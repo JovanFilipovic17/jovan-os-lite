@@ -43,10 +43,13 @@ from database import (
 )
 from priority_constants import (
     LIFE_AREAS,
+    LIFE_AREA_LABELS,
     QUADRANTS,
     LEVELS,
     FOCUS_STATES,
     MAX_ACTIVE_NOW,
+    MAX_ACTIVE_PER_LIFE_AREA,
+    MAX_Q1_ITEMS_WARNING,
     life_area_label,
     quadrant_label,
     focus_state_label,
@@ -200,6 +203,124 @@ def render_focus_markdown():
 
 {render_group(parking_items)}
 """
+
+
+def compute_life_area_report():
+    items = get_all_items()
+
+    def empty_bucket():
+        return {"inbox": 0, "active": 0, "scheduled": 0, "parking": 0, "total": 0,
+                "Q1": 0, "Q2": 0, "Q3": 0, "Q4": 0}
+
+    groups = {key: empty_bucket() for key, _ in LIFE_AREAS}
+    groups["unclassified"] = empty_bucket()
+
+    total_q1 = 0
+    q2_total = 0
+    q2_in_focus = 0
+
+    for item in items:
+        (item_id, title, description, life_area, importance, urgency, quadrant,
+         next_action, deadline, status, energy_required, difficulty, notes,
+         created_at, updated_at) = item
+
+        key = life_area if life_area in LIFE_AREA_LABELS else "unclassified"
+        bucket = groups[key]
+        bucket["total"] += 1
+
+        if status in ("inbox", "active", "scheduled", "parking"):
+            bucket[status] += 1
+
+        if quadrant in ("Q1", "Q2", "Q3", "Q4"):
+            bucket[quadrant] += 1
+
+        if quadrant == "Q1":
+            total_q1 += 1
+
+        if quadrant == "Q2":
+            q2_total += 1
+            if status in ("active", "scheduled"):
+                q2_in_focus += 1
+
+    return {
+        "groups": groups,
+        "total_q1": total_q1,
+        "q2_total": q2_total,
+        "q2_in_focus": q2_in_focus,
+    }
+
+
+def render_life_areas_markdown():
+    report = compute_life_area_report()
+    groups = report["groups"]
+
+    warnings = []
+
+    if report["total_q1"] > MAX_Q1_ITEMS_WARNING:
+        warnings.append(
+            f"**Too many Q1 items:** {report['total_q1']} items are marked Important & Urgent. "
+            f"If everything is urgent, nothing is - park or downgrade some before adding more."
+        )
+
+    if report["q2_total"] > 0 and report["q2_in_focus"] == 0:
+        warnings.append(
+            f"**Q2 is neglected:** {report['q2_total']} Important, Not Urgent item(s) exist, "
+            f"but none are Active Now or Scheduled. Long-term priorities are being ignored."
+        )
+
+    overloaded_areas = [
+        life_area_label(key) for key, stats in groups.items()
+        if stats["active"] > MAX_ACTIVE_PER_LIFE_AREA
+    ]
+    if overloaded_areas:
+        verb = "has" if len(overloaded_areas) == 1 else "have"
+        warnings.append(
+            f"**Concentrated focus:** {', '.join(overloaded_areas)} {verb} more than "
+            f"{MAX_ACTIVE_PER_LIFE_AREA} Active Now item(s). Spread focus across life areas."
+        )
+
+    if warnings:
+        warning_md = "### Overload Warnings\n\n" + "\n".join(f"- {w}" for w in warnings)
+    else:
+        warning_md = "### Overload Warnings\n\n_No overload signals right now._"
+
+    cards = []
+    ordered_keys = [key for key, _ in LIFE_AREAS] + ["unclassified"]
+
+    for key in ordered_keys:
+        stats = groups[key]
+
+        if stats["total"] == 0:
+            continue
+
+        label = life_area_label(key)
+        area_warning = ""
+        if stats["active"] > MAX_ACTIVE_PER_LIFE_AREA:
+            area_warning = f"\n> Warning: {stats['active']} Active Now items in this area.\n"
+
+        cards.append(f"""### {label}
+
+| Lane | Count |
+|---|---:|
+| Inbox | {stats['inbox']} |
+| Active Now | {stats['active']} |
+| Scheduled | {stats['scheduled']} |
+| Parking | {stats['parking']} |
+| **Total** | **{stats['total']}** |
+
+Quadrants: Q1: {stats['Q1']} - Q2: {stats['Q2']} - Q3: {stats['Q3']} - Q4: {stats['Q4']}
+{area_warning}""")
+
+    if cards:
+        cards_md = "\n---\n".join(cards)
+    else:
+        cards_md = "_No items yet. Capture something in the Inbox first._"
+
+    return f"{warning_md}\n\n---\n\n{cards_md}"
+
+
+def ui_refresh_life_areas():
+    return render_life_areas_markdown()
 
 
 def ui_add_item(title, description):
@@ -1145,6 +1266,34 @@ with gr.Blocks(title="Jovan OS Lite") as app:
                             fn=ui_refresh_focus,
                             inputs=[],
                             outputs=[focus_item_dropdown, focus_board_output],
+                        )
+
+                    with gr.Tab("Life Areas"):
+                        with gr.Group(elem_classes="jos-panel"):
+                            gr.HTML("<h2 class='jos-screen-title'>Life Areas / Overload View</h2>")
+                            gr.HTML(
+                                """
+                                <div class="jos-info">
+                                  <h3>Where Attention Is Going</h3>
+                                  <p>Grouped counts per life area, with simple warnings when focus is too concentrated, too much is urgent, or important-but-not-urgent work is being ignored.</p>
+                                </div>
+                                """
+                            )
+
+                            with gr.Row(elem_classes="jos-action-row"):
+                                life_areas_refresh_button = gr.Button("Refresh", variant="secondary")
+
+                            with gr.Group(elem_classes="jos-output-card"):
+                                gr.HTML("<h3>Life Areas</h3>")
+                                life_areas_output = gr.Markdown(
+                                    value=render_life_areas_markdown(),
+                                    elem_classes="jos-output",
+                                )
+
+                        life_areas_refresh_button.click(
+                            fn=ui_refresh_life_areas,
+                            inputs=[],
+                            outputs=[life_areas_output],
                         )
 
             with gr.Tab("Agent Workflow"):
